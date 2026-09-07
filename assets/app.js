@@ -1,7 +1,7 @@
 /* Zero to Your Own Model — roadmap tracker.
  *
  * No framework, no build step. Renders the tree from roadmap.data.js, keeps
- * progress in localStorage, and optionally mirrors it to a sync server.
+ * progress in localStorage, and optionally mirrors it to Firestore.
  */
 
 import { ROADMAP } from './roadmap.data.js';
@@ -9,6 +9,10 @@ import { CONFIG } from './config.js';
 
 const STORE_KEY = 'zttym-progress-v1';
 const THEME_KEY = 'zttym-theme';
+const EMAIL_KEY = 'zttym-email';
+
+/** Email of the signed-in account, or '' when sync is off / not signed in yet. */
+let activeEmail = '';
 
 /* ------------------------------------------------------------------ *
  * State
@@ -240,7 +244,7 @@ function replaceState(next) {
 }
 
 /* ------------------------------------------------------------------ *
- * Persistence — localStorage always, sync server optionally
+ * Persistence — localStorage always, Firestore sync optionally
  * ------------------------------------------------------------------ */
 
 function note(text, isError) {
@@ -248,10 +252,17 @@ function note(text, isError) {
   el.savenote.classList.toggle('err', !!isError);
 }
 
+/** The local cache is namespaced per account, so switching emails on the
+ * same browser never mixes one person's ticks into another's. */
+function localKey() {
+  return activeEmail ? STORE_KEY + ':' + activeEmail : STORE_KEY;
+}
+
 function loadLocal() {
   try {
-    const raw = localStorage.getItem(STORE_KEY);
+    const raw = localStorage.getItem(localKey());
     if (raw) replaceState(JSON.parse(raw));
+    else replaceState({});
   } catch (err) {
     console.warn('Could not read saved progress:', err);
   }
@@ -259,7 +270,7 @@ function loadLocal() {
 
 function saveLocal() {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(state));
+    localStorage.setItem(localKey(), JSON.stringify(state));
   } catch (err) {
     note('Progress could not be saved — browser storage is unavailable.', true);
   }
@@ -268,32 +279,47 @@ function saveLocal() {
 const sync = CONFIG.sync || {};
 let syncTimer = null;
 
-function syncUrl() {
-  return sync.baseUrl.replace(/\/$/, '') + '/progress/' + encodeURIComponent(sync.userId);
+const FIREBASE_VERSION = '10.14.1';
+
+/** Loaded lazily, only if sync is actually turned on — most visitors never
+ * pay for this fetch. */
+let firestore = null; // { db, doc, getDoc, setDoc }
+
+async function ensureFirestore() {
+  if (firestore) return firestore;
+  const [{ initializeApp }, { getFirestore, doc, getDoc, setDoc }] = await Promise.all([
+    import(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-app.js`),
+    import(`https://www.gstatic.com/firebasejs/${FIREBASE_VERSION}/firebase-firestore.js`),
+  ]);
+  const app = initializeApp(sync.firebaseConfig);
+  firestore = { db: getFirestore(app), doc, getDoc, setDoc };
+  return firestore;
+}
+
+/** The one document for this email: collection "progress", doc id = email,
+ * fields are literally `{ "s0.0.0": true, ... }` — the item id is the key. */
+async function progressRef() {
+  const { db, doc } = await ensureFirestore();
+  return doc(db, 'progress', activeEmail);
 }
 
 async function pullRemote() {
-  const res = await fetch(syncUrl(), {
-    headers: { 'X-Token': sync.token },
-  });
-  if (!res.ok) throw new Error('sync GET ' + res.status);
-  const body = await res.json();
-  return body.done || {};
+  const { getDoc } = await ensureFirestore();
+  const snap = await getDoc(await progressRef());
+  return snap.exists() ? snap.data() : {};
 }
 
 function pushRemote() {
   clearTimeout(syncTimer);
   syncTimer = setTimeout(async () => {
     try {
-      const res = await fetch(syncUrl(), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'X-Token': sync.token },
-        body: JSON.stringify({ done: state }),
-      });
-      if (!res.ok) throw new Error('sync PUT ' + res.status);
-      note('Synced · ' + new Date().toLocaleTimeString());
+      const { setDoc } = await ensureFirestore();
+      const done = {};
+      for (const id in state) done[id] = true;
+      await setDoc(await progressRef(), done);
+      note('Synced as ' + activeEmail + ' · ' + new Date().toLocaleTimeString());
     } catch (err) {
-      note('Saved in this browser. Sync server unreachable.', true);
+      note('Saved in this browser. Sync unreachable.', true);
     }
   }, 600);
 }
@@ -301,7 +327,7 @@ function pushRemote() {
 function persist() {
   refresh();
   saveLocal();
-  if (sync.enabled) pushRemote();
+  if (sync.enabled && activeEmail) pushRemote();
 }
 
 /* ------------------------------------------------------------------ *
@@ -337,7 +363,7 @@ function importProgress(file) {
       replaceState(done);
       applyState();
       saveLocal();
-      if (sync.enabled) pushRemote();
+      if (sync.enabled && activeEmail) pushRemote();
       note('Imported ' + Object.keys(done).length + ' completed topics.');
     } catch (err) {
       note('That file is not a roadmap export: ' + err.message, true);
@@ -354,9 +380,11 @@ function importProgress(file) {
 const search = document.getElementById('q');
 
 /** Default text for the status line, restored when the search box is cleared. */
-const IDLE_NOTE = sync.enabled
-  ? 'Syncing with ' + (sync.baseUrl || '')
-  : 'Progress saved in this browser · press / to search · Export for a backup';
+function idleNote() {
+  return sync.enabled && activeEmail
+    ? 'Synced as ' + activeEmail
+    : 'Progress saved in this browser · press / to search · Export for a backup';
+}
 
 /**
  * Rewrite `el`'s text with every occurrence of `term` wrapped in <mark>.
@@ -389,7 +417,7 @@ function clearSearch() {
   }
   for (const grec of GROUPS) grec.titleEl.textContent = grec.title;
   for (const node of document.querySelectorAll('.group, .stage')) node.classList.remove('off');
-  note(IDLE_NOTE);
+  note(idleNote());
 }
 
 search.addEventListener('input', () => {
@@ -480,7 +508,7 @@ document.getElementById('reset').addEventListener('click', () => {
   replaceState({});
   applyState();
   saveLocal();
-  if (sync.enabled) pushRemote();
+  if (sync.enabled && activeEmail) pushRemote();
 });
 
 document.getElementById('exportBtn').addEventListener('click', exportProgress);
@@ -516,24 +544,90 @@ themeBtn.addEventListener('click', () => {
 });
 
 /* ------------------------------------------------------------------ *
+ * Login — only asked for when sync is on. No password: typing an email
+ * is what makes it "your" account.
+ * ------------------------------------------------------------------ */
+
+const loginOverlay = document.getElementById('loginOverlay');
+const loginForm = document.getElementById('loginForm');
+const loginEmail = document.getElementById('loginEmail');
+const accountBtn = document.getElementById('account');
+
+function readEmail() {
+  try { return (localStorage.getItem(EMAIL_KEY) || '').trim(); } catch (err) { return ''; }
+}
+
+function writeEmail(email) {
+  try { localStorage.setItem(EMAIL_KEY, email); } catch (err) { /* not fatal */ }
+}
+
+function forgetEmail() {
+  try { localStorage.removeItem(EMAIL_KEY); } catch (err) { /* not fatal */ }
+}
+
+function updateAccountButton() {
+  const signedIn = sync.enabled && !!activeEmail;
+  accountBtn.hidden = !signedIn;
+  if (signedIn) accountBtn.textContent = activeEmail + ' · switch';
+}
+
+function showLogin() {
+  loginOverlay.hidden = false;
+  loginEmail.value = '';
+  loginEmail.focus();
+}
+
+function hideLogin() {
+  loginOverlay.hidden = true;
+}
+
+function startApp() {
+  loadLocal();
+  applyState();
+  updateAccountButton();
+
+  if (sync.enabled && activeEmail) {
+    note('Syncing…');
+    pullRemote()
+      .then((remote) => {
+        // Firestore is the source of truth on load; local is the offline cache.
+        replaceState(remote);
+        applyState();
+        saveLocal();
+        note('Synced as ' + activeEmail);
+      })
+      .catch(() => note('Offline — using progress saved in this browser.', true));
+  } else {
+    note(idleNote());
+  }
+}
+
+loginForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const email = loginEmail.value.trim().toLowerCase();
+  if (!email) return;
+  activeEmail = email;
+  writeEmail(email);
+  hideLogin();
+  startApp();
+});
+
+accountBtn.addEventListener('click', () => {
+  forgetEmail();
+  activeEmail = '';
+  showLogin();
+});
+
+/* ------------------------------------------------------------------ *
  * Boot
  * ------------------------------------------------------------------ */
 
 setTheme(readTheme());
-loadLocal();
-applyState();
 
 if (sync.enabled) {
-  note('Syncing…');
-  pullRemote()
-    .then((remote) => {
-      // The server is the source of truth on load; local is the offline cache.
-      replaceState(remote);
-      applyState();
-      saveLocal();
-      note('Synced with ' + sync.baseUrl);
-    })
-    .catch(() => note('Offline — using progress saved in this browser.', true));
+  activeEmail = readEmail();
+  if (activeEmail) startApp();
+  else showLogin();
 } else {
-  note(IDLE_NOTE);
+  startApp();
 }

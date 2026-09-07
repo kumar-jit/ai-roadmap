@@ -23,6 +23,14 @@
 </script>
 </head>
 <body>
+<div class="login-overlay" id="loginOverlay" hidden>
+  <form class="login-box" id="loginForm">
+    <h2>Sign in to track your progress</h2>
+    <p>Enter your email. No password — it just keeps your checkboxes tied to your account across devices.</p>
+    <input type="email" id="loginEmail" placeholder="you@example.com" required autocomplete="email">
+    <button type="submit" class="btn btn-accent">Continue</button>
+  </form>
+</div>
 <div class="wrap">
 
   <header class="titleblock">
@@ -58,6 +66,7 @@
     <input id="importFile" type="file" accept="application/json,.json" hidden>
     <button class="btn" id="reset">Reset</button>
     <button class="btn" id="theme" title="Switch theme">Theme: system</button>
+    <button class="btn" id="account" hidden title="Switch account"></button>
     <div class="meter">
       <div class="track"><div class="fill" id="fill"></div></div>
       <span class="num" id="num">0 / 290</span>
