@@ -6,6 +6,8 @@ No framework, no build step, no `node_modules`. It is HTML, CSS and three JavaSc
 
 ![stages 00–09, 290 topics, 11 milestones](https://img.shields.io/badge/stages-10-0F548E) ![topics](https://img.shields.io/badge/topics-290-0F548E) ![milestones](https://img.shields.io/badge/milestones-11-0F548E)
 
+**Live:** [kumar-jit.github.io/ai-roadmap](https://kumar-jit.github.io/ai-roadmap/)
+
 ---
 
 ## Deploy it in three minutes
@@ -57,17 +59,10 @@ It must be served over HTTP, not opened as a `file://` path — the app uses ES 
 ├── assets/
 │   ├── roadmap.data.js         the curriculum — edit this to change content
 │   ├── app.js                  rendering, progress, search, persistence
-│   ├── config.js               optional sync settings
+│   ├── config.js               optional sync settings (Firebase config)
 │   └── styles.css              design tokens and layout
-├── server/                     OPTIONAL cross-device sync
-│   ├── main.py                 FastAPI + SQLite, ~150 lines
-│   ├── test_main.py
-│   ├── requirements.txt
-│   └── Dockerfile
-├── docker-compose.yml          optional, for the sync server
 └── .github/workflows/
-    ├── deploy-pages.yml        publishes the site on push to main
-    └── test-server.yml         runs the server tests
+    └── deploy-pages.yml        publishes the site on push to main
 ```
 
 ---
@@ -106,51 +101,44 @@ Everything you see comes from `assets/roadmap.data.js`. Nothing else needs touch
 
 ---
 
-## Optional: sync across devices
+## Optional: sync across devices, per account
 
-Skip this unless you actually want your phone and laptop to stay in step. The tracker is complete without it.
+Skip this unless you actually want progress tied to an account and following you between devices. The tracker is complete without it, and this needs no server of your own — just a free Firebase project. GitHub Pages stays 100% static either way.
 
-```bash
-# Generate a token
-export ROADMAP_TOKEN=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+**One-time setup (a few minutes, no credit card):**
 
-# Run it
-docker compose up -d          # or: cd server && pip install -r requirements.txt && uvicorn main:app
-```
+1. [console.firebase.google.com](https://console.firebase.google.com) → **Add project** (Google Analytics is not needed — you can skip it).
+2. **Build → Firestore Database → Create database.** Pick any region; start in production mode (the rules below lock it down).
+3. **Project settings → General → Your apps → Add app → Web** (the `</>` icon). Register it — you don't need Firebase Hosting, just the SDK config it shows you.
+4. `assets/config.js` stays a placeholder in the repo — real values never get committed. Instead, in the GitHub repo: **Settings → Secrets and variables → Actions**.
+   - Under **Secrets**, add `FIREBASE_API_KEY`.
+   - Under **Variables**, add `FIREBASE_PROJECT_ID`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_STORAGE_BUCKET`, `FIREBASE_MESSAGING_SENDER_ID`, `FIREBASE_APP_ID` — one value from `firebaseConfig` each.
 
-Then in `assets/config.js`:
+   The deploy workflow (`.github/workflows/deploy-pages.yml`) writes them into `assets/config.js` at deploy time, with `sync.enabled = true`, so the live site has real values while the repo never does.
+5. **Firestore Database → Rules**, replace the contents with:
 
-```js
-export const CONFIG = {
-  sync: {
-    enabled: true,
-    baseUrl: 'https://your-sync-host.example.com',
-    userId:  'me',
-    token:   'the-token-you-generated',
-  },
-};
-```
+   ```
+   rules_version = '2';
+   service cloud.firestore {
+     match /databases/{database}/documents {
+       match /progress/{email} {
+         allow read, write: if email.matches('^[^@\\s]+@[^@\\s]+[.][^@\\s]+$');
+       }
+     }
+   }
+   ```
 
-On load the server wins; every change is pushed back, debounced. If the server is unreachable the page falls back to `localStorage` and says so — you never lose a tick because a container was down.
+   then **Publish**.
 
-**API**
+Push to GitHub Pages as usual — no server to deploy, no Docker, nothing else to host. If the secrets/variables above aren't set, the deploy step is skipped and the site simply ships with sync off, same as running it fresh.
 
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/health` | Liveness. |
-| `GET` | `/progress/{user_id}` | Returns `{done, updated_at, count}`. An unknown user is empty, not a 404. |
-| `PUT` | `/progress/{user_id}` | Body `{"done": {"s0.0.0": 1}}`. Keys that do not match the item-id pattern are dropped. |
+**Testing locally**, before any of this exists in CI, temporarily paste real values straight into `assets/config.js` and set `enabled: true`, then `git checkout -- assets/config.js` afterwards so they never get committed.
 
-All routes except `/health` require an `X-Token` header.
+With sync on, the page asks for an email before showing the tracker — **no password**. Typing an email is what makes it "your" account; there's an account switcher (top bar) to sign out and sign in as someone else on the same browser. On load Firestore wins; every change is pushed back, debounced. If it's unreachable the page falls back to `localStorage` and says so — you never lose a tick because your connection dropped.
 
-**Be honest about what this auth is.** One shared token, compared in constant time, that ships inside the client bundle. It stops strangers scribbling on your checkboxes. It is not real authentication, and this service should not hold anything you would mind leaking. If you deploy it publicly, put it behind HTTPS and set `ROADMAP_ORIGINS` to your Pages URL rather than leaving it `*`.
+**Storage.** Collection `progress`, one document per email, and the document *is* the done map — `{ "s0.0.0": true, "s1.2.3": true, ... }`. Free "Spark" tier covers 1 GiB and 50k reads / 20k writes a day, far more than a personal tracker needs.
 
-Tests:
-
-```bash
-pip install -r server/requirements.txt pytest httpx
-ROADMAP_TOKEN=test pytest server/test_main.py -q
-```
+**Be honest about what this auth is.** There isn't any — an email is a label, not a credential, and anyone who knows (or guesses) an address, or opens devtools, can read or overwrite that account's ticks. The Firestore rule above only checks that the document id looks like an email; it does not verify who is typing it. `firebaseConfig` itself is not a secret in the security sense — it's still visible to anyone who views source on the live site, same as every Firebase web app. Keeping it out of the git repo (step 4) only avoids bots that scrape public repos for exposed Firebase projects to spam; it isn't what makes this secure. Fine for a personal tracker or a small trusted group; do not put anything sensitive behind it.
 
 ---
 
@@ -160,7 +148,7 @@ Any static host works, since there is no build:
 
 - **Netlify / Vercel / Cloudflare Pages** — connect the repo, leave the build command blank, publish directory `.`
 - **Your own box** — `python3 -m http.server`, or drop the files in nginx's web root
-- **Nothing at all** — clone it and run the local server; it works entirely offline apart from the web fonts
+- **Nothing at all** — clone it and open it locally; it works entirely offline apart from the web fonts and, if enabled, Firestore sync
 
 ---
 
