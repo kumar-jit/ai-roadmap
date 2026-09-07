@@ -255,6 +255,13 @@ h1{
   font-variant-numeric:tabular-nums;padding-left:6px;
 }
 
+/* every item under this node is done */
+.gnode.g-stage.all-done,.gnode.g-group.all-done{
+  background:var(--done-soft);border-color:var(--done);
+}
+.gnode.g-stage.all-done{border-left-color:var(--done)}
+.gnode.all-done .gcount{color:var(--done)}
+
 .gnode.g-item{
   display:flex;gap:8px;align-items:flex-start;
   width:250px;padding:7px 10px;

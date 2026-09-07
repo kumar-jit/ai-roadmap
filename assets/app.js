@@ -233,9 +233,12 @@ function renderItemNode(node) {
 
 function renderBranchNode(node) {
   const open = isOpen(node);
+  const total = node.type === 'stage' ? node.total : node.children.length;
+  const done = countDone(node);
+
   const box = document.createElement('button');
   box.type = 'button';
-  box.className = 'gnode g-' + node.type + (open ? ' open' : '');
+  box.className = 'gnode g-' + node.type + (open ? ' open' : '') + (total && done === total ? ' all-done' : '');
   box.style.left = node.x + 'px';
   box.style.top = node.y + 'px';
   box.setAttribute('aria-expanded', String(open));
@@ -249,10 +252,9 @@ function renderBranchNode(node) {
   if (ownMatch(node)) highlight(name, node.name, searchTerm);
   else name.textContent = node.name;
 
-  const total = node.type === 'stage' ? node.total : node.children.length;
   const count = document.createElement('span');
   count.className = 'gcount';
-  count.textContent = countDone(node) + '/' + total;
+  count.textContent = done + '/' + total;
 
   box.append(caret, name, count);
 
@@ -280,7 +282,9 @@ function updateCounts(node) {
     const box = nodeEls.get(node.id);
     if (box) {
       const total = node.type === 'stage' ? node.total : node.children.length;
-      box.querySelector('.gcount').textContent = countDone(node) + '/' + total;
+      const done = countDone(node);
+      box.querySelector('.gcount').textContent = done + '/' + total;
+      box.classList.toggle('all-done', total > 0 && done === total);
     }
     node = node.parent;
   }
