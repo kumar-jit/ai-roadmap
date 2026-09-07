@@ -48,10 +48,10 @@
   </header>
 
   <div class="howto">
-    <p><b>Read it as a tree.</b> Stage → topic group → the individual points you have to actually know. Nothing below a line matters until the line above it makes sense.</p>
+    <p><b>It's a tree, not a list.</b> Root → stage → topic group → the individual point you have to know. Click a box to open what's inside it.</p>
     <p><b>Tick as you go.</b> Every leaf is a checkbox. Progress is stored in your browser, and <b>Export</b> writes it to a JSON file you can commit or move to another machine.</p>
-    <p><b>The dashed boxes are the real exam.</b> Eleven milestones. If you can't build the milestone, the stage isn't done, however many boxes are ticked.</p>
-    <p><b>Overlaps are intentional.</b> Stage 1 (maths) runs alongside 0 and 2; stage 7 runs alongside 5 and 6. Week ranges show it.</p>
+    <p><b>Dashed boxes are the real exam.</b> Eleven milestones. If you can't build the milestone, the stage isn't done, however many boxes are ticked.</p>
+    <p><b>Overlaps are intentional.</b> Stage 1 (maths) runs alongside 0 and 2; stage 7 runs alongside 5 and 6.</p>
   </div>
 
   <div class="bar">
@@ -74,9 +74,11 @@
     <p class="savenote" id="savenote">Progress: local to this browser</p>
   </div>
 
-  <div class="cols">
-    <nav class="index" id="index" aria-label="Stage index"><div class="ihead">Stages</div></nav>
-    <main id="main"></main>
+  <div class="graph-shell">
+    <div class="graph-wrap" id="graphWrap">
+      <svg id="graphEdges" class="graph-edges"></svg>
+      <div id="graphNodes" class="graph-nodes"></div>
+    </div>
   </div>
 
   <section class="panel" id="hardware">

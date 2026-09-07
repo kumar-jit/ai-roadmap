@@ -1,7 +1,8 @@
 /* Zero to Your Own Model — roadmap tracker.
  *
- * No framework, no build step. Renders the tree from roadmap.data.js, keeps
- * progress in localStorage, and optionally mirrors it to Firestore.
+ * No framework, no build step. Renders the curriculum from roadmap.data.js
+ * as a node graph (root -> stage -> group -> item), keeps progress in
+ * localStorage, and optionally mirrors it to Firestore.
  */
 
 import { ROADMAP } from './roadmap.data.js';
@@ -21,167 +22,308 @@ let activeEmail = '';
 /** id -> 1 for every completed item. Absent means not done. */
 const state = Object.create(null);
 
-/** Flat list of every rendered item, for search and progress maths. */
+function replaceState(next) {
+  for (const k in state) delete state[k];
+  Object.assign(state, next || {});
+}
+
+/* ------------------------------------------------------------------ *
+ * Tree model — root -> stage -> group -> item (leaf, checkable).
+ * Built once from ROADMAP; `collapsed` is the only thing that changes
+ * afterward (plus `state`, which lives separately by item id).
+ * ------------------------------------------------------------------ */
+
+/** Flat list of every leaf item, for search/progress/export. */
 const ITEMS = [];
 
-/** Flat list of every rendered group, so a group title is searchable too. */
-const GROUPS = [];
+/** Flat list of every stage node, for the collapse-all sweep. */
+const STAGES = [];
 
-/** True while we are writing the DOM from state, so change handlers no-op. */
-let applying = false;
+function buildTree() {
+  const root = {
+    type: 'root', id: 'root', name: 'Zero to Your Own Model',
+    parent: null, children: [],
+  };
+
+  ROADMAP.forEach((stage, si) => {
+    const total = stage.g.reduce((n, g) => n + g.i.length, 0);
+    const stageNode = {
+      type: 'stage', id: 'stage-' + si, si, stage, total,
+      name: stage.no + ' · ' + stage.t,
+      collapsed: true, parent: root, children: [],
+    };
+    STAGES.push(stageNode);
+
+    stage.g.forEach((group, gi) => {
+      const groupNode = {
+        type: 'group', id: 'group-' + si + '-' + gi, si, gi, group,
+        name: group.t,
+        collapsed: true, parent: stageNode, children: [],
+      };
+
+      group.i.forEach((item, ii) => {
+        const itemId = 's' + si + '.' + gi + '.' + ii;
+        const itemNode = {
+          type: 'item', id: 'item-' + itemId, itemId, si, gi, ii,
+          name: item.n, why: item.w || '', milestone: !!item.m,
+          // Only what the node itself represents, so a search hit is explainable.
+          text: (item.n + ' ' + (item.w || '')).toLowerCase(),
+          parent: groupNode, children: [],
+        };
+        ITEMS.push(itemNode);
+        groupNode.children.push(itemNode);
+      });
+
+      stageNode.children.push(groupNode);
+    });
+
+    root.children.push(stageNode);
+  });
+
+  return root;
+}
+
+const root = buildTree();
+const TOTAL = ITEMS.length;
+
+/* ------------------------------------------------------------------ *
+ * Layout — a simple tidy-tree: each visible leaf row gets the next slot
+ * top to bottom; a parent sits at the midpoint of its visible children.
+ * Recomputed on every structural change (expand/collapse, search, hide-done).
+ * ------------------------------------------------------------------ */
+
+const COL_W = 300; // px between successive depths
+const NODE_W = 250; // reserved width per node, for where an edge starts
+const ROW_H = 46;   // px per leaf row
+
+let searchTerm = '';
+let hideDoneOn = false;
+
+function ownMatch(node) {
+  return !!searchTerm && node.name.toLowerCase().includes(searchTerm);
+}
+
+/** Whether this node or anything under it matches the current search. */
+function nodeMatches(node) {
+  if (!searchTerm) return true;
+  if (node.type === 'item') return node.text.includes(searchTerm);
+  return ownMatch(node) || node.children.some(nodeMatches);
+}
+
+function visibleChildren(node) {
+  let kids = node.children;
+  if (searchTerm) kids = kids.filter(nodeMatches);
+  if (hideDoneOn) kids = kids.filter((c) => c.type !== 'item' || !state[c.itemId]);
+  return kids;
+}
+
+/** A search in progress forces every matching branch open, so results are
+ * never hidden behind a manually-collapsed box. */
+function isOpen(node) {
+  if (searchTerm) return true;
+  return !node.collapsed;
+}
+
+/** Rebuilt on every layout(): the nodes actually placed, in draw order,
+ * each paired with its parent (for edges) — or null for the root. */
+let placed = [];
+
+function layout() {
+  placed = [];
+  let row = 0;
+
+  function place(node, depth, parent) {
+    node.depth = depth;
+    node.x = depth * COL_W;
+    placed.push({ node, parent });
+
+    const kids = node.type === 'root' || isOpen(node) ? visibleChildren(node) : [];
+    if (kids.length === 0) {
+      node.y = row * ROW_H;
+      row += 1;
+      return;
+    }
+    kids.forEach((k) => place(k, depth + 1, node));
+    node.y = (kids[0].y + kids[kids.length - 1].y) / 2;
+  }
+
+  place(root, 0, null);
+  return row;
+}
 
 /* ------------------------------------------------------------------ *
  * Render
  * ------------------------------------------------------------------ */
 
-const main = document.getElementById('main');
-const index = document.getElementById('index');
+const edgesSvg = document.getElementById('graphEdges');
+const nodesEl = document.getElementById('graphNodes');
 
-ROADMAP.forEach((stage, si) => {
-  const sec = document.createElement('section');
-  sec.className = 'stage';
-  sec.id = 'stage-' + si;
-  sec.style.setProperty('--sh', 'var(--s' + si + ')');
+/** node.id -> its current DOM element, so a plain checkbox toggle can patch
+ * in place instead of tearing down the whole graph. */
+const nodeEls = new Map();
 
-  const total = stage.g.reduce((n, g) => n + g.i.length, 0);
+function countDone(node) {
+  let n = 0;
+  (function walk(x) {
+    if (x.type === 'item') { if (state[x.itemId]) n++; return; }
+    x.children.forEach(walk);
+  })(node);
+  return n;
+}
 
-  const head = document.createElement('div');
-  head.className = 'stage-head';
-  head.innerHTML =
-    '<div class="stage-no"></div>' +
-    '<div><h2 class="stage-t"></h2><p class="stage-sub"></p>' +
-    '<div class="stage-meta">' +
-    '<span class="chip hue"></span><span class="chip"></span>' +
-    '<span class="chip">' + total + ' topics</span>' +
-    '</div></div>';
-  head.querySelector('.stage-no').textContent = stage.no;
-  head.querySelector('.stage-t').textContent = stage.t;
-  head.querySelector('.stage-sub').textContent = stage.sub;
-  head.querySelector('.chip.hue').textContent = stage.wk;
-  head.querySelectorAll('.chip')[1].textContent = stage.hrs;
-  sec.appendChild(head);
+/**
+ * Rewrite `target`'s text with every occurrence of `term` wrapped in <mark>.
+ * Built from text nodes rather than innerHTML, so curriculum text containing
+ * angle brackets can never become markup.
+ */
+function highlight(target, text, term) {
+  target.textContent = '';
+  const haystack = text.toLowerCase();
+  let from = 0;
+  let at = haystack.indexOf(term);
 
-  const bar = document.createElement('div');
-  bar.className = 'stage-bar';
-  bar.innerHTML = '<i></i>';
-  sec.appendChild(bar);
+  while (at !== -1) {
+    if (at > from) target.appendChild(document.createTextNode(text.slice(from, at)));
+    const mark = document.createElement('mark');
+    mark.textContent = text.slice(at, at + term.length);
+    target.appendChild(mark);
+    from = at + term.length;
+    at = haystack.indexOf(term, from);
+  }
+  if (from < text.length) target.appendChild(document.createTextNode(text.slice(from)));
+}
 
-  const out = document.createElement('div');
-  out.className = 'outcome';
-  out.innerHTML = '<b>You leave this stage able to</b>';
-  out.appendChild(document.createTextNode(stage.out));
-  sec.appendChild(out);
+function renderItemNode(node) {
+  const box = document.createElement('div');
+  box.className = 'gnode g-item'
+    + (node.milestone ? ' ms' : '')
+    + (state[node.itemId] ? ' done' : '')
+    + (ownMatch(node) ? ' hit' : '');
+  box.style.left = node.x + 'px';
+  box.style.top = node.y + 'px';
 
-  const tree = document.createElement('div');
-  tree.className = 'tree';
-
-  stage.g.forEach((group, gi) => {
-    const gd = document.createElement('div');
-    gd.className = 'group';
-
-    const gh = document.createElement('button');
-    gh.className = 'group-h';
-    gh.type = 'button';
-    gh.setAttribute('aria-expanded', 'true');
-    gh.innerHTML =
-      '<span class="caret"></span>' +
-      '<span class="gno"></span><span class="gt"></span>' +
-      '<span class="gc">0/' + group.i.length + '</span>';
-    gh.querySelector('.gno').textContent = stage.no + '.' + (gi + 1);
-    gh.querySelector('.gt').textContent = group.t;
-    gh.addEventListener('click', () => {
-      const collapsed = gd.classList.toggle('collapsed');
-      gh.setAttribute('aria-expanded', String(!collapsed));
-    });
-    gd.appendChild(gh);
-
-    const grec = {
-      gd, gh,
-      titleEl: gh.querySelector('.gt'),
-      title: group.t,
-      text: (group.t + ' ' + stage.t).toLowerCase(),
-    };
-    GROUPS.push(grec);
-
-    const ul = document.createElement('ul');
-    ul.className = 'items';
-
-    group.i.forEach((item, ii) => {
-      const id = 's' + si + '.' + gi + '.' + ii;
-
-      const li = document.createElement('li');
-      li.className = 'item' + (item.m ? ' ms' : '');
-      li.dataset.id = id;
-
-      const row = document.createElement('div');
-      row.className = 'row';
-
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.id = 'cb-' + id;
-
-      const label = document.createElement('label');
-      label.className = 'lab';
-      label.htmlFor = cb.id;
-
-      const name = document.createElement('span');
-      name.className = 'n';
-      name.textContent = item.n;
-      label.appendChild(name);
-
-      if (item.w) {
-        const why = document.createElement('span');
-        why.className = 'w';
-        why.textContent = item.w;
-        label.appendChild(why);
-      }
-
-      row.append(cb, label);
-      li.appendChild(row);
-      ul.appendChild(li);
-
-      const rec = {
-        id, li, cb, si,
-        group: grec,
-        nameEl: name,
-        whyEl: label.querySelector('.w'),
-        name: item.n,
-        why: item.w || '',
-        // Only what is written on the row itself, so every hit is visibly a hit.
-        text: (item.n + ' ' + (item.w || '')).toLowerCase(),
-      };
-      ITEMS.push(rec);
-
-      cb.addEventListener('change', () => {
-        if (applying) return;
-        if (cb.checked) state[id] = 1; else delete state[id];
-        li.classList.toggle('done', cb.checked);
-        persist();
-      });
-    });
-
-    gd.appendChild(ul);
-    tree.appendChild(gd);
+  const cbId = 'cb-' + node.itemId;
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.id = cbId;
+  cb.checked = !!state[node.itemId];
+  cb.addEventListener('change', () => {
+    if (cb.checked) state[node.itemId] = 1; else delete state[node.itemId];
+    box.classList.toggle('done', cb.checked);
+    updateCounts(node.parent);
+    persist();
+    // Hiding done items can change which rows exist, so it needs a real relayout.
+    if (hideDoneOn) render();
   });
 
-  sec.appendChild(tree);
-  main.appendChild(sec);
+  const label = document.createElement('label');
+  label.className = 'lab';
+  label.htmlFor = cbId;
+  if (node.why) label.title = node.why;
 
-  const link = document.createElement('a');
-  link.href = '#stage-' + si;
-  link.style.setProperty('--sh', 'var(--s' + si + ')');
-  link.innerHTML =
-    '<span class="no"></span><span class="it"></span>' +
-    '<span class="pc" data-pc="' + si + '">0%</span>';
-  link.querySelector('.no').textContent = stage.no;
-  link.querySelector('.it').textContent = stage.t;
-  index.appendChild(link);
-});
+  const name = document.createElement('span');
+  name.className = 'n';
+  if (ownMatch(node)) highlight(name, node.name, searchTerm);
+  else name.textContent = node.name;
+  label.appendChild(name);
 
-const TOTAL = ITEMS.length;
+  box.append(cb, label);
+  return box;
+}
+
+function renderBranchNode(node) {
+  const open = isOpen(node);
+  const box = document.createElement('button');
+  box.type = 'button';
+  box.className = 'gnode g-' + node.type + (open ? ' open' : '');
+  box.style.left = node.x + 'px';
+  box.style.top = node.y + 'px';
+  box.setAttribute('aria-expanded', String(open));
+  if (searchTerm) box.disabled = true; // search already forces everything relevant open
+
+  const caret = document.createElement('span');
+  caret.className = 'caret';
+
+  const name = document.createElement('span');
+  name.className = 'gname';
+  if (ownMatch(node)) highlight(name, node.name, searchTerm);
+  else name.textContent = node.name;
+
+  const total = node.type === 'stage' ? node.total : node.children.length;
+  const count = document.createElement('span');
+  count.className = 'gcount';
+  count.textContent = countDone(node) + '/' + total;
+
+  box.append(caret, name, count);
+
+  box.addEventListener('click', () => {
+    node.collapsed = !node.collapsed;
+    render();
+    const fresh = nodeEls.get(node.id);
+    if (fresh) fresh.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  });
+
+  return box;
+}
+
+function renderRootNode(node) {
+  const box = document.createElement('div');
+  box.className = 'gnode g-root';
+  box.style.left = node.x + 'px';
+  box.style.top = node.y + 'px';
+  box.textContent = node.name;
+  return box;
+}
+
+function updateCounts(node) {
+  while (node && node.type !== 'root') {
+    const box = nodeEls.get(node.id);
+    if (box) {
+      const total = node.type === 'stage' ? node.total : node.children.length;
+      box.querySelector('.gcount').textContent = countDone(node) + '/' + total;
+    }
+    node = node.parent;
+  }
+}
+
+function render() {
+  const rows = layout();
+  const maxDepth = placed.reduce((m, { node }) => Math.max(m, node.depth), 0);
+
+  const width = (maxDepth + 1) * COL_W + NODE_W + 40;
+  const height = Math.max(rows * ROW_H, ROW_H);
+  edgesSvg.setAttribute('width', String(width));
+  edgesSvg.setAttribute('height', String(height));
+  nodesEl.style.width = width + 'px';
+  nodesEl.style.height = height + 'px';
+
+  let edgeHTML = '';
+  for (const { node, parent } of placed) {
+    if (!parent) continue;
+    const x1 = parent.x + NODE_W, y1 = parent.y + ROW_H / 2;
+    const x2 = node.x, y2 = node.y + ROW_H / 2;
+    const mx = (x1 + x2) / 2;
+    const hit = node.type === 'item' && ownMatch(node);
+    edgeHTML += '<path d="M' + x1 + ',' + y1 + ' C' + mx + ',' + y1 + ' ' + mx + ',' + y2 + ' ' + x2 + ',' + y2 + '"'
+      + (hit ? ' class="hit"' : '') + '/>';
+  }
+  edgesSvg.innerHTML = edgeHTML;
+
+  nodesEl.innerHTML = '';
+  nodeEls.clear();
+  for (const { node } of placed) {
+    const box = node.type === 'root' ? renderRootNode(node)
+      : node.type === 'item' ? renderItemNode(node)
+      : renderBranchNode(node);
+    nodeEls.set(node.id, box);
+    nodesEl.appendChild(box);
+  }
+
+  refresh();
+}
 
 /* ------------------------------------------------------------------ *
- * Progress
+ * Progress meter (top bar / header / footer)
  * ------------------------------------------------------------------ */
 
 const el = {
@@ -195,13 +337,7 @@ const el = {
 
 function refresh() {
   let done = 0;
-  const perStage = ROADMAP.map(() => [0, 0]);
-
-  for (const rec of ITEMS) {
-    const isDone = !!state[rec.id];
-    perStage[rec.si][1]++;
-    if (isDone) { done++; perStage[rec.si][0]++; }
-  }
+  for (const item of ITEMS) if (state[item.itemId]) done++;
 
   const pct = TOTAL ? Math.round((done / TOTAL) * 100) : 0;
   el.fill.style.width = pct + '%';
@@ -209,38 +345,12 @@ function refresh() {
   el.hdrProgress.firstChild.nodeValue = done + ' / ' + TOTAL;
   el.hdrPct.textContent = pct + '% complete';
   el.footprog.textContent = done + ' / ' + TOTAL + ' complete';
-
-  perStage.forEach((counts, i) => {
-    const sec = document.getElementById('stage-' + i);
-    sec.querySelector('.stage-bar i').style.width =
-      (counts[1] ? (counts[0] / counts[1]) * 100 : 0) + '%';
-    const pc = document.querySelector('[data-pc="' + i + '"]');
-    if (pc) pc.textContent = (counts[1] ? Math.round((counts[0] / counts[1]) * 100) : 0) + '%';
-  });
-
-  for (const gd of document.querySelectorAll('.group')) {
-    const items = gd.querySelectorAll('.item');
-    let d = 0;
-    for (const li of items) if (li.classList.contains('done')) d++;
-    gd.querySelector('.gc').textContent = d + '/' + items.length;
-  }
 }
 
-/** Write `state` into the DOM. Use after loading or importing. */
+/** Rebuild the whole graph from `state` — used after loading, importing, or
+ * a remote sync, since those can touch items that aren't currently rendered. */
 function applyState() {
-  applying = true;
-  for (const rec of ITEMS) {
-    const isDone = !!state[rec.id];
-    rec.cb.checked = isDone;
-    rec.li.classList.toggle('done', isDone);
-  }
-  applying = false;
-  refresh();
-}
-
-function replaceState(next) {
-  for (const k in state) delete state[k];
-  Object.assign(state, next || {});
+  render();
 }
 
 /* ------------------------------------------------------------------ *
@@ -387,84 +497,19 @@ function idleNote() {
     : 'Progress saved in this browser · press / to search · Export for a backup';
 }
 
-/**
- * Rewrite `el`'s text with every occurrence of `term` wrapped in <mark>.
- * Built from text nodes rather than innerHTML, so curriculum text containing
- * angle brackets can never become markup.
- */
-function highlight(el, text, term) {
-  if (!el) return;
-  el.textContent = '';
-  const haystack = text.toLowerCase();
-  let from = 0;
-  let at = haystack.indexOf(term);
-
-  while (at !== -1) {
-    if (at > from) el.appendChild(document.createTextNode(text.slice(from, at)));
-    const mark = document.createElement('mark');
-    mark.textContent = text.slice(at, at + term.length);
-    el.appendChild(mark);
-    from = at + term.length;
-    at = haystack.indexOf(term, from);
-  }
-  if (from < text.length) el.appendChild(document.createTextNode(text.slice(from)));
-}
-
 function clearSearch() {
-  for (const rec of ITEMS) {
-    rec.li.classList.remove('off', 'hit');
-    rec.nameEl.textContent = rec.name;
-    if (rec.whyEl) rec.whyEl.textContent = rec.why;
-  }
-  for (const grec of GROUPS) grec.titleEl.textContent = grec.title;
-  for (const node of document.querySelectorAll('.group, .stage')) node.classList.remove('off');
+  searchTerm = '';
+  search.value = '';
+  render();
   note(idleNote());
 }
 
 search.addEventListener('input', () => {
-  const term = search.value.trim().toLowerCase();
+  searchTerm = search.value.trim().toLowerCase();
+  if (!searchTerm) { clearSearch(); return; }
 
-  if (!term) {
-    clearSearch();
-    return;
-  }
-
-  // A group whose own title matches keeps all of its items — searching
-  // "tokenisation" should show that group, not only rows repeating the word.
-  for (const grec of GROUPS) {
-    grec.matched = grec.text.includes(term);
-    if (grec.matched) highlight(grec.titleEl, grec.title, term);
-    else grec.titleEl.textContent = grec.title;
-  }
-
-  let hits = 0;
-  for (const rec of ITEMS) {
-    const own = rec.text.includes(term);
-    const hit = own || rec.group.matched;
-    if (hit) hits++;
-
-    rec.li.classList.toggle('off', !hit);
-    rec.li.classList.toggle('hit', hit);
-
-    if (own) {
-      highlight(rec.nameEl, rec.name, term);
-      if (rec.whyEl) highlight(rec.whyEl, rec.why, term);
-    } else {
-      rec.nameEl.textContent = rec.name;
-      if (rec.whyEl) rec.whyEl.textContent = rec.why;
-    }
-  }
-
-  // Groups and stages with nothing left visible fold away.
-  for (const grec of GROUPS) {
-    grec.gd.classList.remove('collapsed');
-    grec.gh.setAttribute('aria-expanded', 'true');
-    grec.gd.classList.toggle('off', !grec.gd.querySelector('.item:not(.off)'));
-  }
-  for (const sec of document.querySelectorAll('.stage')) {
-    sec.classList.toggle('off', !sec.querySelector('.item:not(.off)'));
-  }
-
+  render();
+  const hits = ITEMS.filter((item) => item.text.includes(searchTerm)).length;
   note(
     hits
       ? hits + ' of ' + TOTAL + ' topics match “' + search.value.trim() + '”'
@@ -479,28 +524,28 @@ document.addEventListener('keydown', (e) => {
     search.select();
   }
   if (e.key === 'Escape' && document.activeElement === search) {
-    search.value = '';
     clearSearch();
     search.blur();
   }
 });
 
-const hideDone = document.getElementById('toggleDone');
-hideDone.addEventListener('click', () => {
-  const on = hideDone.getAttribute('aria-pressed') !== 'true';
-  hideDone.setAttribute('aria-pressed', String(on));
-  document.body.classList.toggle('hidedone', on);
-  hideDone.textContent = on ? 'Show done' : 'Hide done';
+const hideDoneBtn = document.getElementById('toggleDone');
+hideDoneBtn.addEventListener('click', () => {
+  hideDoneOn = hideDoneBtn.getAttribute('aria-pressed') !== 'true';
+  hideDoneBtn.setAttribute('aria-pressed', String(hideDoneOn));
+  hideDoneBtn.textContent = hideDoneOn ? 'Show done' : 'Hide done';
+  render();
 });
 
-const collapseAll = document.getElementById('collapseAll');
-collapseAll.addEventListener('click', () => {
-  const anyOpen = !!document.querySelector('.group:not(.collapsed)');
-  for (const gd of document.querySelectorAll('.group')) {
-    gd.classList.toggle('collapsed', anyOpen);
-    gd.querySelector('.group-h').setAttribute('aria-expanded', String(!anyOpen));
-  }
-  collapseAll.textContent = anyOpen ? 'Expand all' : 'Collapse all';
+const collapseAllBtn = document.getElementById('collapseAll');
+collapseAllBtn.addEventListener('click', () => {
+  const anyOpen = STAGES.some((s) => !s.collapsed || s.children.some((g) => !g.collapsed));
+  STAGES.forEach((s) => {
+    s.collapsed = anyOpen;
+    s.children.forEach((g) => { g.collapsed = anyOpen; });
+  });
+  collapseAllBtn.textContent = anyOpen ? 'Expand all' : 'Collapse all';
+  render();
 });
 
 document.getElementById('reset').addEventListener('click', () => {
