@@ -319,6 +319,7 @@ function pushRemote() {
       await setDoc(await progressRef(), done);
       note('Synced as ' + activeEmail + ' · ' + new Date().toLocaleTimeString());
     } catch (err) {
+      console.error('Firestore push failed:', err);
       note('Saved in this browser. Sync unreachable.', true);
     }
   }, 600);
@@ -596,7 +597,10 @@ function startApp() {
         saveLocal();
         note('Synced as ' + activeEmail);
       })
-      .catch(() => note('Offline — using progress saved in this browser.', true));
+      .catch((err) => {
+        console.error('Firestore pull failed:', err);
+        note('Offline — using progress saved in this browser.', true);
+      });
   } else {
     note(idleNote());
   }
