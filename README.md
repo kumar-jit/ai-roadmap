@@ -41,13 +41,13 @@ It must be served over HTTP, not opened as a `file://` path — the app uses ES 
 
 | | |
 |---|---|
-| **The tree** | Stage → topic group → the individual point you have to know, each with a line on *why it earns its place*. |
-| **Progress** | Every leaf is a checkbox. Saved to `localStorage` immediately. Per-group, per-stage and overall meters update live. |
+| **The graph** | Root → stage → topic group → the individual point you have to know, drawn as a collapsible node graph rather than a long list. Click a box to open it. |
+| **Progress** | Every leaf is a checkbox. Saved to `localStorage` immediately. A stage/group box turns done-colored once everything under it is ticked. |
 | **Milestones** | Eleven dashed boxes — the things you have to actually build. Ticking topics is not the same as passing these. |
-| **Search** | Press `/` from anywhere. Filters all 290 topics; `Esc` clears. |
+| **Search** | Press `/` from anywhere. Prunes the graph to matching paths, auto-expanded; `Esc` clears. |
+| **Notes** | A sticky-notes panel next to the graph. Plain text, `@mention` any topic for a clickable link that jumps straight to it. |
 | **Export / import** | Progress as a JSON file, so you can back it up, commit it, or move to another machine. |
 | **Theme** | System, light or dark. Remembered. |
-| **Print** | The stylesheet drops the chrome and avoids breaking stages across pages. |
 
 ---
 
@@ -124,6 +124,9 @@ Skip this unless you actually want progress tied to an account and following you
        match /progress/{email} {
          allow read, write: if email.matches('^[^@\\s]+@[^@\\s]+[.][^@\\s]+$');
        }
+       match /notes/{email} {
+         allow read, write: if email.matches('^[^@\\s]+@[^@\\s]+[.][^@\\s]+$');
+       }
      }
    }
    ```
@@ -136,7 +139,11 @@ Push to GitHub Pages as usual — no server to deploy, no Docker, nothing else t
 
 With sync on, the page asks for an email before showing the tracker — **no password**. Typing an email is what makes it "your" account; there's an account switcher (top bar) to sign out and sign in as someone else on the same browser. On load Firestore wins; every change is pushed back, debounced. If it's unreachable the page falls back to `localStorage` and says so — you never lose a tick because your connection dropped.
 
-**Storage.** Collection `progress`, one document per email, and the document *is* the done map — `{ "s0.0.0": true, "s1.2.3": true, ... }`. Free "Spark" tier covers 1 GiB and 50k reads / 20k writes a day, far more than a personal tracker needs.
+**Storage.** Two collections, both keyed by email:
+- `progress/{email}` — the done map, `{ "s0.0.0": true, "s1.2.3": true, ... }`
+- `notes/{email}` — `{ items: [{ id, title, body, color, updatedAt }, ...] }`, the sticky notes
+
+Free "Spark" tier covers 1 GiB and 50k reads / 20k writes a day, far more than a personal tracker needs.
 
 **Be honest about what this auth is.** There isn't any — an email is a label, not a credential, and anyone who knows (or guesses) an address, or opens devtools, can read or overwrite that account's ticks. The Firestore rule above only checks that the document id looks like an email; it does not verify who is typing it. `firebaseConfig` itself is not a secret in the security sense — it's still visible to anyone who views source on the live site, same as every Firebase web app. Keeping it out of the git repo (step 4) only avoids bots that scrape public repos for exposed Firebase projects to spam; it isn't what makes this secure. Fine for a personal tracker or a small trusted group; do not put anything sensitive behind it.
 
