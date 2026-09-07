@@ -709,6 +709,7 @@ function renderNotes() {
 }
 
 addNoteBtn.addEventListener('click', () => {
+  if (notesCollapsed()) setNotesOpen(true);
   const used = notesList.map((n) => n.color);
   const color = NOTE_COLORS.find((c) => !used.includes(c)) || NOTE_COLORS[notesList.length % NOTE_COLORS.length];
   notesList.unshift({ id: newNoteId(), title: '', body: '', color, updatedAt: new Date().toISOString() });
@@ -717,6 +718,43 @@ addNoteBtn.addEventListener('click', () => {
   const firstTitle = notesListEl.querySelector('.note .note-title');
   if (firstTitle) firstTitle.focus();
 });
+
+/* ------------------------------------------------------------------ *
+ * Folding the board away
+ *
+ * The rail is fixed to the viewport and .wrap reserves its width, so both
+ * sides move together off one class on <html>. index.html stamps the same
+ * class before first paint to avoid a visible slide on load.
+ * ------------------------------------------------------------------ */
+
+const NOTES_OPEN_KEY = 'zttym-notes-open';
+const notesTab = document.getElementById('notesTab');
+const notesHideBtn = document.getElementById('notesHide');
+
+function notesCollapsed() {
+  return document.documentElement.classList.contains('notes-collapsed');
+}
+
+function setNotesOpen(open) {
+  document.documentElement.classList.toggle('notes-collapsed', !open);
+  notesTab.hidden = open;
+  notesTab.setAttribute('aria-expanded', String(open));
+  try { localStorage.setItem(NOTES_OPEN_KEY, open ? '1' : '0'); } catch (err) { /* not fatal */ }
+}
+
+notesHideBtn.addEventListener('click', () => {
+  setNotesOpen(false);
+  notesTab.focus();
+});
+
+notesTab.addEventListener('click', () => {
+  setNotesOpen(true);
+  addNoteBtn.focus();
+});
+
+// Reflect whatever the boot script decided, without writing it back.
+notesTab.hidden = !notesCollapsed();
+notesTab.setAttribute('aria-expanded', String(!notesCollapsed()));
 
 /* ------------------------------------------------------------------ *
  * Export / import

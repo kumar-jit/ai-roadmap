@@ -12,13 +12,18 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='5' fill='%230F548E'/%3E%3Cpath d='M8 23V9h3l5 8 5-8h3v14h-3v-8l-5 8-5-8v8z' fill='%23fff'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Sans+Condensed:wght@600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Sans+Condensed:wght@600;700&family=Kalam:wght@400;700&display=swap">
 <link rel="stylesheet" href="assets/styles.css">
 <script>
-  /* Stamp the saved theme before first paint so there is no flash. */
+  /* Stamp the saved theme and notes-board state before first paint,
+     so neither the colours nor the rail visibly jump on load. */
   try {
     var t = localStorage.getItem('zttym-theme');
     if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+
+    var n = localStorage.getItem('zttym-notes-open');
+    var collapsed = n === null ? window.innerWidth <= 1100 : n === '0';
+    if (collapsed) document.documentElement.classList.add('notes-collapsed');
   } catch (e) {}
 </script>
 </head>
@@ -52,7 +57,7 @@
     <p><b>Tick as you go.</b> Every leaf is a checkbox. Progress is stored in your browser, and <b>Export</b> writes it to a JSON file you can commit or move to another machine.</p>
     <p><b>Dashed boxes are the real exam.</b> Eleven milestones. If you can't build the milestone, the stage isn't done, however many boxes are ticked.</p>
     <p><b>Overlaps are intentional.</b> Stage 1 (maths) runs alongside 0 and 2; stage 7 runs alongside 5 and 6.</p>
-    <p><b>Notes, on the right.</b> Freeform sticky notes. Type <code>@</code> in one to link it straight to any topic — click the link later to jump there.</p>
+    <p><b>Notes live on the board.</b> Sticky notes pinned to the right, outside the page. Type <code>@</code> in one to link it to any topic — click the link later to jump there. The <b>›</b> button folds the board away.</p>
   </div>
 
   <div class="bar">
@@ -82,14 +87,6 @@
         <div id="graphNodes" class="graph-nodes"></div>
       </div>
     </div>
-
-    <aside class="notes-panel" aria-label="Sticky notes">
-      <div class="notes-head">
-        <h2>Notes</h2>
-        <button class="btn btn-accent" id="addNote">+ Note</button>
-      </div>
-      <div class="notes-list" id="notesList"></div>
-    </aside>
   </div>
 
   <section class="panel" id="hardware">
@@ -186,6 +183,22 @@
     <span id="footprog">0 / 290 complete</span>
   </footer>
 </div>
+
+<!-- The notes board sits outside .wrap: it is pinned to the right of the
+     viewport and the sticky notes float directly on the gridded background. -->
+<button class="notes-tab" id="notesTab" type="button" aria-expanded="true" aria-controls="notesRail" hidden>Notes</button>
+
+<aside class="notes-rail" id="notesRail" aria-label="Sticky notes">
+  <div class="notes-head">
+    <h2>Notes</h2>
+    <div class="notes-actions">
+      <button class="btn btn-accent" id="addNote">+ Note</button>
+      <button class="btn notes-hide" id="notesHide" type="button" title="Hide the notes board" aria-label="Hide the notes board">›</button>
+    </div>
+  </div>
+  <div class="notes-list" id="notesList"></div>
+</aside>
+
 <script type="module" src="assets/app.js"></script>
 </body>
 </html>
