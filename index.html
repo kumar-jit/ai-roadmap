@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zero to Your Own Model — AI roadmap tracker</title>
+<meta name="description" content="A 290-checkpoint tree roadmap from complete beginner to building, training, aligning and serving your own language model.">
+<meta name="color-scheme" content="light dark">
+<meta property="og:title" content="Zero to Your Own Model">
+<meta property="og:description" content="A 290-checkpoint tree roadmap from complete beginner to your own language model.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='5' fill='%230F548E'/%3E%3Cpath d='M8 23V9h3l5 8 5-8h3v14h-3v-8l-5 8-5-8v8z' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Sans+Condensed:wght@600;700&display=swap">
+<link rel="stylesheet" href="assets/styles.css">
+<script>
+  /* Stamp the saved theme before first paint so there is no flash. */
+  try {
+    var t = localStorage.getItem('zttym-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+</script>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="titleblock">
+    <div class="tb-main">
+      <div class="eyebrow">Learning plan · complete beginner → builds an LLM</div>
+      <h1>Zero to Your<br>Own Model</h1>
+      <p class="lede">Every concept you need, in the order the dependencies actually demand it — from your first Python function to a transformer you wrote, pretrained, aligned and served yourself. 290 checkpoints across ten stages.</p>
+    </div>
+    <div class="tb-fields">
+      <div class="field"><span class="k">Pace</span><span class="v">15–20 h<small>per week · ~19 h average</small></span></div>
+      <div class="field"><span class="k">Span</span><span class="v">82 weeks<small>≈ 19 months · ~1,550 h</small></span></div>
+      <div class="field"><span class="k">Rig</span><span class="v">1× consumer GPU<small>rent for 2 runs only</small></span></div>
+      <div class="field"><span class="k">Progress</span><span class="v" id="hdrProgress">0 / 290<small id="hdrPct">0% complete</small></span></div>
+    </div>
+  </header>
+
+  <div class="howto">
+    <p><b>Read it as a tree.</b> Stage → topic group → the individual points you have to actually know. Nothing below a line matters until the line above it makes sense.</p>
+    <p><b>Tick as you go.</b> Every leaf is a checkbox. Progress is stored in your browser, and <b>Export</b> writes it to a JSON file you can commit or move to another machine.</p>
+    <p><b>The dashed boxes are the real exam.</b> Eleven milestones. If you can't build the milestone, the stage isn't done, however many boxes are ticked.</p>
+    <p><b>Overlaps are intentional.</b> Stage 1 (maths) runs alongside 0 and 2; stage 7 runs alongside 5 and 6. Week ranges show it.</p>
+  </div>
+
+  <div class="bar">
+    <div class="search">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+      <input id="q" type="search" placeholder="Search 290 topics — try &ldquo;RoPE&rdquo;, &ldquo;eigen&rdquo;, &ldquo;LoRA&rdquo;" aria-label="Search topics">
+    </div>
+    <button class="btn" id="toggleDone" aria-pressed="false">Hide done</button>
+    <button class="btn" id="collapseAll">Collapse all</button>
+    <button class="btn" id="exportBtn" title="Download your progress as JSON">Export</button>
+    <label class="btn" for="importFile" title="Load a progress file">Import</label>
+    <input id="importFile" type="file" accept="application/json,.json" hidden>
+    <button class="btn" id="reset">Reset</button>
+    <button class="btn" id="theme" title="Switch theme">Theme: system</button>
+    <div class="meter">
+      <div class="track"><div class="fill" id="fill"></div></div>
+      <span class="num" id="num">0 / 290</span>
+    </div>
+    <p class="savenote" id="savenote">Progress: local to this browser</p>
+  </div>
+
+  <div class="cols">
+    <nav class="index" id="index" aria-label="Stage index"><div class="ihead">Stages</div></nav>
+    <main id="main"></main>
+  </div>
+
+  <section class="panel" id="hardware">
+    <h2>What your GPU can actually do</h2>
+    <p class="psub">The single most demoralising beginner mistake is attempting a run that cannot fit, then concluding you are bad at this. Here is the honest ceiling, assuming bf16 and sensible batch sizes. "Train from scratch" means pretraining your own weights; "QLoRA" means 4-bit base + low-rank adapters.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>VRAM</th><th>Train from scratch<br><span style="font-weight:400;text-transform:none;letter-spacing:0">AdamW, bf16</span></th><th>Full fine-tune<br><span style="font-weight:400;text-transform:none;letter-spacing:0">8-bit optim. + checkpointing</span></th><th>QLoRA fine-tune</th><th>Inference (4-bit)</th></tr></thead>
+        <tbody>
+          <tr><td>8 GB</td><td class="num">≤ 50 M</td><td class="num">≤ 0.7 B</td><td class="num">≤ 7 B</td><td class="num">≤ 9 B</td></tr>
+          <tr><td>12 GB</td><td class="num">≤ 150 M</td><td class="num">≤ 1 B</td><td class="num">≤ 9 B</td><td class="num">≤ 14 B</td></tr>
+          <tr><td>16 GB</td><td class="num">≤ 300 M</td><td class="num">≤ 1.5 B</td><td class="num">≤ 14 B</td><td class="num">≤ 20 B</td></tr>
+          <tr><td>24 GB</td><td class="num">≤ 700 M</td><td class="num">≤ 3 B</td><td class="num">≤ 32 B</td><td class="num">≤ 34 B</td></tr>
+          <tr><td>Rented 8× H100</td><td class="num">7–13 B *</td><td class="num">≤ 70 B</td><td class="num">any open model</td><td class="num">any open model</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="psub" style="margin-top:14px;margin-bottom:0">Rough rule for training memory: <b>weights + gradients + Adam's two moments ≈ 16 bytes per parameter</b> in mixed precision, before a single activation is stored. A 1 B model therefore wants ~16 GB just to hold its own training state — which is why 24 GB tops out near 700 M for comfortable from-scratch work, why an 8-bit optimiser plus gradient checkpointing roughly doubles what fits, and why LoRA (training ~0.1% of the parameters) changes the arithmetic completely. <b>*</b> The 8× H100 from-scratch figure is what fits in memory, not what fits in a budget: pretraining a 7 B model properly means trillions of tokens and weeks of rented time. Only two things on this roadmap actually need rented GPUs — the stage-4 nanochat run (~$100) and one multi-GPU FSDP experiment in stage 5 (~$30).</p>
+  </section>
+
+  <section class="panel" id="habits">
+    <h2>Habits that decide whether this works</h2>
+    <p class="psub">The syllabus is the easy part. Almost everyone who fails at an 18-month self-taught track fails on these instead.</p>
+    <ul class="rules">
+      <li><b>Implement before you import.</b> Write it badly from scratch once — then use the library forever. Reading about backprop teaches you nothing; a wrong gradient you had to hunt down teaches you everything.</li>
+      <li><b>Maths on paper, in parallel.</b> Never batch six weeks of pure maths before touching code. Two hours of maths and two of code in the same week make each other stick.</li>
+      <li><b>Overfit one batch first.</b> Before any real training run, prove the model can memorise 8 examples. If it can't, the bug is in your code, not your hyperparameters.</li>
+      <li><b>Keep a lab notebook.</b> One file per experiment: hypothesis, config, result, what surprised you. In month 14 this is the difference between having learned and having watched.</li>
+      <li><b>Ship publicly every stage.</b> A repo, a write-up, a model card. Explaining it is how you find out what you don't understand.</li>
+      <li><b>Budget compute deliberately.</b> Decide the run's cost before launching it. "I'll just leave it training" is how side projects die.</li>
+      <li><b>Read one paper a week from stage 3 onward.</b> Non-negotiable and cumulative — about 60 papers by the end, which is roughly the working canon.</li>
+      <li><b>Expect the wall around month 5.</b> It comes for everyone, usually mid-stage-3. Drop the hours, don't drop the streak.</li>
+    </ul>
+  </section>
+
+  <section class="panel" id="skip">
+    <h2>What to deliberately skip</h2>
+    <p class="psub">A roadmap is as much about exclusion as inclusion. These will be recommended to you constantly and will cost you months.</p>
+    <ul class="rules skip">
+      <li><b>Measure-theoretic probability.</b> Beautiful, and irrelevant to everything below stage 9. Undergraduate probability is genuinely enough.</li>
+      <li><b>A full maths degree before any code.</b> The single most common way this track dies. You need working fluency, not proofs.</li>
+      <li><b>TensorFlow / Keras.</b> Research and open-weight tooling standardised on PyTorch. Learn one framework deeply.</li>
+      <li><b>Tutorial-hopping.</b> Fifteen half-finished Colab notebooks teach less than one finished ugly project.</li>
+      <li><b>Pretraining a "real" LLM.</b> A 7 B model from scratch costs six figures. Your from-scratch model is 10–500 M parameters, and that teaches the same lessons.</li>
+      <li><b>Waiting to feel ready.</b> You will start stage 4 feeling shaky about stage 3. That's the normal state of everyone doing this.</li>
+    </ul>
+  </section>
+
+  <section class="panel" id="resources">
+    <h2>The short list</h2>
+    <p class="psub">One or two per stage, chosen because they are complete and free or cheap — not an exhaustive link dump. Everything here was live as of September 2026.</p>
+    <div class="reslist">
+      <div class="resgroup">
+        <h3>Stage 0–1 · Foundations</h3>
+        <ul>
+          <li><a href="https://automatetheboringstuff.com/">Automate the Boring Stuff</a><em>Free book. Python for people who have never programmed.</em></li>
+          <li><a href="https://www.youtube.com/playlist?list=PLZHQObOWTQDPD3MizzM2xVFitgF8hE_ab">3Blue1Brown · Essence of Linear Algebra</a><em>Watch before any textbook. Builds the geometric intuition everything else assumes.</em></li>
+          <li><a href="https://mml-book.github.io/">Mathematics for Machine Learning</a><em>Free PDF. The reference for exactly the maths on this roadmap and nothing more.</em></li>
+          <li><a href="https://numpy.org/doc/stable/user/absolute_beginners.html">NumPy · absolute beginners</a><em>Broadcasting and axis semantics are the whole game.</em></li>
+        </ul>
+      </div>
+      <div class="resgroup">
+        <h3>Stage 2–3 · ML &amp; deep learning</h3>
+        <ul>
+          <li><a href="https://karpathy.ai/zero-to-hero.html">Karpathy · Neural Networks: Zero to Hero</a><em>The centre of gravity of this entire roadmap. Build micrograd, then makemore, then GPT.</em></li>
+          <li><a href="https://d2l.ai/">Dive into Deep Learning</a><em>Free, interactive, PyTorch. The best single reference text.</em></li>
+          <li><a href="https://course.fast.ai/">fast.ai · Practical Deep Learning</a><em>Top-down counterweight. Gets you results early, which sustains morale.</em></li>
+          <li><a href="https://www.statlearning.com/">An Introduction to Statistical Learning</a><em>Free PDF. Classical ML done properly.</em></li>
+        </ul>
+      </div>
+      <div class="resgroup">
+        <h3>Stage 4–6 · LLMs</h3>
+        <ul>
+          <li><a href="https://github.com/rasbt/LLMs-from-scratch">Raschka · Build a Large Language Model (From Scratch)</a><em>Book + full repo. Tokenizer to fine-tuned chat model, line by line.</em></li>
+          <li><a href="https://github.com/karpathy/nanochat">karpathy/nanochat</a><em>The full pipeline — pretrain, SFT, RL, web UI — for about $100 of rented GPU.</em></li>
+          <li><a href="https://cs336.stanford.edu/">Stanford CS336 · Language Modeling from Scratch</a><em>Spring 2026 lectures and assignments are public. The graduate-level version of stages 4–5.</em></li>
+          <li><a href="https://jalammar.github.io/illustrated-transformer/">The Illustrated Transformer</a><em>Read it the day before you implement attention, not instead of implementing it.</em></li>
+        </ul>
+      </div>
+      <div class="resgroup">
+        <h3>Stage 7–9 · Applied &amp; research</h3>
+        <ul>
+          <li><a href="https://huggingface.co/learn">Hugging Face courses</a><em>NLP, agents, deep RL, diffusion — all free, all hands-on.</em></li>
+          <li><a href="https://docs.vllm.ai/">vLLM docs</a><em>Paged attention and continuous batching, explained by the implementation.</em></li>
+          <li><a href="https://arxiv.org/list/cs.LG/recent">arXiv cs.LG</a><em>Skim titles weekly. Read one properly.</em></li>
+          <li><a href="https://www.deeplearning.ai/">DeepLearning.AI short courses</a><em>Two-hour applied modules — useful for filling stage-7 gaps fast.</em></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Zero to Your Own Model · rev 2026.09</span>
+    <span id="footprog">0 / 290 complete</span>
+  </footer>
+</div>
+<script type="module" src="assets/app.js"></script>
+</body>
+</html>

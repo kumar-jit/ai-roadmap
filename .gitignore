@@ -1,0 +1,20 @@
+# Sync server
+*.db
+progress.db
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Local overrides — copy assets/config.js and edit if you need private values
+assets/config.local.js
+
+# Exported progress backups
+roadmap-progress-*.json
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
