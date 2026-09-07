@@ -52,6 +52,7 @@
     <p><b>Tick as you go.</b> Every leaf is a checkbox. Progress is stored in your browser, and <b>Export</b> writes it to a JSON file you can commit or move to another machine.</p>
     <p><b>Dashed boxes are the real exam.</b> Eleven milestones. If you can't build the milestone, the stage isn't done, however many boxes are ticked.</p>
     <p><b>Overlaps are intentional.</b> Stage 1 (maths) runs alongside 0 and 2; stage 7 runs alongside 5 and 6.</p>
+    <p><b>Notes, on the right.</b> Freeform sticky notes. Type <code>@</code> in one to link it straight to any topic — click the link later to jump there.</p>
   </div>
 
   <div class="bar">
@@ -74,11 +75,21 @@
     <p class="savenote" id="savenote">Progress: local to this browser</p>
   </div>
 
-  <div class="graph-shell">
-    <div class="graph-wrap" id="graphWrap">
-      <svg id="graphEdges" class="graph-edges"></svg>
-      <div id="graphNodes" class="graph-nodes"></div>
+  <div class="workspace">
+    <div class="graph-shell">
+      <div class="graph-wrap" id="graphWrap">
+        <svg id="graphEdges" class="graph-edges"></svg>
+        <div id="graphNodes" class="graph-nodes"></div>
+      </div>
     </div>
+
+    <aside class="notes-panel" aria-label="Sticky notes">
+      <div class="notes-head">
+        <h2>Notes</h2>
+        <button class="btn btn-accent" id="addNote">+ Note</button>
+      </div>
+      <div class="notes-list" id="notesList"></div>
+    </aside>
   </div>
 
   <section class="panel" id="hardware">

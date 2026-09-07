@@ -18,6 +18,9 @@
   --shadow:0 1px 1px rgba(14,26,38,.04), 0 10px 30px -18px rgba(14,26,38,.35);
   --r:4px;
   --sh:var(--accent);
+  --note-yellow:#FCE79A; --note-pink:#F9C6D8; --note-green:#BFE6C4;
+  --note-blue:#BFDCF7; --note-orange:#F8CFA0; --note-purple:#D9C6F2;
+  --note-ink:#26221A;
   color-scheme:light;
 }
 @media (prefers-color-scheme: dark){
@@ -39,6 +42,9 @@
     --s0:#71ADE4; --s1:#9A93E4; --s2:#43BBAE; --s3:#7FBE6E; --s4:#D2A63E;
     --s5:#E0905E; --s6:#E07878; --s7:#D179B7; --s8:#8FA8BE; --s9:#54BADD;
     --shadow:0 1px 1px rgba(0,0,0,.3), 0 12px 34px -20px rgba(0,0,0,.8);
+    --note-yellow:#8C7A2E; --note-pink:#7A4256; --note-green:#365C42;
+    --note-blue:#33526E; --note-orange:#7A5230; --note-purple:#5A4676;
+    --note-ink:#F1ECDD;
     color-scheme:dark;
   }
 }
@@ -60,6 +66,9 @@
   --s0:#71ADE4; --s1:#9A93E4; --s2:#43BBAE; --s3:#7FBE6E; --s4:#D2A63E;
   --s5:#E0905E; --s6:#E07878; --s7:#D179B7; --s8:#8FA8BE; --s9:#54BADD;
   --shadow:0 1px 1px rgba(0,0,0,.3), 0 12px 34px -20px rgba(0,0,0,.8);
+  --note-yellow:#8C7A2E; --note-pink:#7A4256; --note-green:#365C42;
+  --note-blue:#33526E; --note-orange:#7A5230; --note-purple:#5A4676;
+  --note-ink:#F1ECDD;
   color-scheme:dark;
 }
 
@@ -202,8 +211,14 @@ h1{
   color:var(--ink-3);flex-basis:100%;margin:0;
 }
 
+/* ---------- workspace: graph left, notes right ---------- */
+.workspace{display:grid;grid-template-columns:1fr;gap:16px;margin-top:22px}
+@media (min-width:1040px){
+  .workspace{grid-template-columns:minmax(0,1fr) 300px;align-items:start}
+}
+
 /* ---------- node graph ---------- */
-.graph-shell{margin-top:22px}
+.graph-shell{min-width:0}
 .graph-wrap{
   position:relative;
   overflow:auto;
@@ -293,6 +308,105 @@ h1{
 }
 
 mark{background:var(--accent-soft);color:var(--ink);padding:0 1px;border-radius:2px}
+
+/* a node a note's @mention just jumped to */
+@keyframes zttym-flash{
+  0%,100%{box-shadow:var(--shadow)}
+  30%{box-shadow:0 0 0 3px var(--accent)}
+}
+.gnode.flash{animation:zttym-flash 1.1s ease}
+
+/* ---------- sticky notes ---------- */
+.notes-panel{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--shadow);
+  height:min(74vh,900px);
+  display:flex;flex-direction:column;
+  min-width:0;
+}
+.notes-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:11px 13px;border-bottom:1px solid var(--line);flex:none;
+}
+.notes-head h2{
+  margin:0;font-family:"IBM Plex Sans Condensed","IBM Plex Sans",sans-serif;
+  font-weight:700;font-size:14.5px;
+}
+.notes-list{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:10px}
+
+.note{
+  position:relative;
+  border-radius:3px;padding:10px 30px 9px 11px;
+  box-shadow:0 3px 8px rgba(20,15,0,.16);
+  color:var(--note-ink);
+  transform:rotate(var(--tilt,0deg));
+}
+.note.c-yellow{background:var(--note-yellow);--tilt:-.6deg}
+.note.c-pink{background:var(--note-pink);--tilt:.5deg}
+.note.c-green{background:var(--note-green);--tilt:-.4deg}
+.note.c-blue{background:var(--note-blue);--tilt:.6deg}
+.note.c-orange{background:var(--note-orange);--tilt:-.5deg}
+.note.c-purple{background:var(--note-purple);--tilt:.4deg}
+
+.note-title-row{display:flex;align-items:baseline;gap:6px;margin-bottom:5px}
+.note-title{
+  flex:1;min-width:0;
+  background:transparent;border:0;font:inherit;color:inherit;
+  font-weight:700;font-size:13.5px;padding:0;
+}
+.note-title::placeholder{color:inherit;opacity:.55}
+.note-title:focus-visible{outline:1px dashed currentColor;outline-offset:2px}
+.note-date{
+  font-family:"IBM Plex Mono",monospace;font-size:9.5px;opacity:.65;white-space:nowrap;
+}
+.note-del{
+  position:absolute;top:6px;right:7px;
+  background:transparent;border:0;color:inherit;opacity:.5;cursor:pointer;
+  font-size:15px;line-height:1;padding:2px;
+}
+.note-del:hover{opacity:1}
+
+.note-body{
+  width:100%;background:rgba(255,255,255,.35);border:1px dashed currentColor;border-radius:2px;
+  resize:vertical;font:inherit;font-size:12.8px;color:inherit;min-height:52px;padding:5px 6px;
+}
+.note-view{
+  white-space:pre-wrap;word-break:break-word;cursor:text;
+  font-size:12.8px;line-height:1.45;min-height:36px;
+}
+.note-view.empty{opacity:.55;font-style:italic}
+.note-view .mention{
+  display:inline;font:inherit;color:inherit;
+  background:rgba(255,255,255,.5);border:0;border-bottom:1px solid currentColor;
+  padding:0 2px;cursor:pointer;font-weight:600;
+}
+.note-view .mention:hover{background:rgba(255,255,255,.8)}
+
+.note-colors{display:flex;gap:5px;margin-top:7px}
+.note-color-dot{
+  width:13px;height:13px;border-radius:50%;cursor:pointer;padding:0;
+  border:1.5px solid rgba(0,0,0,.25);
+}
+.note-color-dot.c-yellow{background:var(--note-yellow)}
+.note-color-dot.c-pink{background:var(--note-pink)}
+.note-color-dot.c-green{background:var(--note-green)}
+.note-color-dot.c-blue{background:var(--note-blue)}
+.note-color-dot.c-orange{background:var(--note-orange)}
+.note-color-dot.c-purple{background:var(--note-purple)}
+.note-color-dot.active{border-color:currentColor;box-shadow:0 0 0 1.5px var(--surface)}
+
+.mention-suggest{
+  position:absolute;left:11px;right:11px;z-index:10;margin-top:2px;
+  background:var(--surface);color:var(--ink);
+  border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);
+  max-height:180px;overflow:auto;
+}
+.mention-suggest-item{
+  display:block;width:100%;text-align:left;
+  background:none;border:0;font:inherit;color:inherit;font-size:12.5px;
+  padding:6px 9px;cursor:pointer;
+}
+.mention-suggest-item:hover{background:var(--surface-2)}
 
 /* ---------- appendix ---------- */
 .panel{

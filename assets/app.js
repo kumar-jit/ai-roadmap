@@ -86,6 +86,17 @@ function buildTree() {
 const root = buildTree();
 const TOTAL = ITEMS.length;
 
+/** Every stage/group/item, by id — so a note's @mention can find (and jump
+ * to) any topic regardless of what's currently expanded. */
+const NODE_BY_ID = new Map();
+(function indexNodes(node) {
+  if (node.type !== 'root') NODE_BY_ID.set(node.id, node);
+  node.children.forEach(indexNodes);
+})(root);
+
+/** Flat, searchable list of everything a note can @mention. */
+const MENTIONABLE = [...NODE_BY_ID.values()].map((n) => ({ id: n.id, name: n.name }));
+
 /* ------------------------------------------------------------------ *
  * Layout — a simple tidy-tree: each visible leaf row gets the next slot
  * top to bottom; a parent sits at the midpoint of its visible children.
@@ -446,6 +457,268 @@ function persist() {
 }
 
 /* ------------------------------------------------------------------ *
+ * Sticky notes — freeform, per account, same sync model as progress.
+ * Plain text only; @mention a topic to link straight to it in the graph.
+ * A mention is stored inline as `@[Name](node-id)` and rendered as a
+ * clickable chip whenever the note isn't being edited.
+ * ------------------------------------------------------------------ */
+
+const NOTES_KEY = 'zttym-notes-v1';
+const NOTE_COLORS = ['yellow', 'pink', 'green', 'blue', 'orange', 'purple'];
+const MENTION_RE = /@\[([^\]]+)\]\(([^)]+)\)/g;
+
+let notesList = []; // [{ id, title, body, color, updatedAt }]
+
+function notesLocalKey() {
+  return activeEmail ? NOTES_KEY + ':' + activeEmail : NOTES_KEY;
+}
+
+function loadNotesLocal() {
+  try {
+    const raw = localStorage.getItem(notesLocalKey());
+    notesList = raw ? JSON.parse(raw) : [];
+  } catch (err) {
+    notesList = [];
+  }
+}
+
+function saveNotesLocal() {
+  try { localStorage.setItem(notesLocalKey(), JSON.stringify(notesList)); } catch (err) { /* not fatal */ }
+}
+
+let notesSyncTimer = null;
+
+async function notesRef() {
+  const { db, doc } = await ensureFirestore();
+  return doc(db, 'notes', activeEmail);
+}
+
+async function pullNotesRemote() {
+  const { getDoc } = await ensureFirestore();
+  const snap = await getDoc(await notesRef());
+  return snap.exists() ? (snap.data().items || []) : [];
+}
+
+function pushNotesRemote() {
+  clearTimeout(notesSyncTimer);
+  notesSyncTimer = setTimeout(async () => {
+    try {
+      const { setDoc } = await ensureFirestore();
+      await setDoc(await notesRef(), { items: notesList });
+    } catch (err) {
+      console.error('Firestore notes push failed:', err);
+    }
+  }, 600);
+}
+
+function persistNotes() {
+  saveNotesLocal();
+  if (sync.enabled && activeEmail) pushNotesRemote();
+}
+
+function newNoteId() {
+  return 'note-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+function touchNote(n) {
+  n.updatedAt = new Date().toISOString();
+  persistNotes();
+}
+
+function formatNoteDate(iso) {
+  const d = new Date(iso);
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return sameDay
+    ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+/** Expand every ancestor of `id`, drop any active search, then scroll the
+ * node into view and flash it — used when a note's @mention is clicked. */
+function goToTopic(id) {
+  const target = NODE_BY_ID.get(id);
+  if (!target) return;
+  for (let n = target.parent; n && n.type !== 'root'; n = n.parent) n.collapsed = false;
+  searchTerm = '';
+  search.value = '';
+  render();
+  note(idleNote());
+  const box = nodeEls.get(id);
+  if (box) {
+    box.scrollIntoView({ block: 'center', inline: 'center' });
+    box.classList.add('flash');
+    setTimeout(() => box.classList.remove('flash'), 1200);
+  }
+}
+
+function renderNoteBody(container, text) {
+  container.textContent = '';
+  let from = 0;
+  let m;
+  MENTION_RE.lastIndex = 0;
+  while ((m = MENTION_RE.exec(text))) {
+    if (m.index > from) container.appendChild(document.createTextNode(text.slice(from, m.index)));
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'mention';
+    chip.textContent = '@' + m[1];
+    const topicId = m[2];
+    chip.addEventListener('click', () => goToTopic(topicId));
+    container.appendChild(chip);
+    from = m.index + m[0].length;
+  }
+  if (from < text.length) container.appendChild(document.createTextNode(text.slice(from)));
+}
+
+let openSuggestBox = null;
+
+function closeSuggest() {
+  if (openSuggestBox) { openSuggestBox.remove(); openSuggestBox = null; }
+}
+
+/** A small dropdown of matching topics, anchored to the note card, shown
+ * while typing `@something` in a note body. */
+function showSuggest(anchorEl, query, onPick) {
+  closeSuggest();
+  const q = query.toLowerCase();
+  const matches = MENTIONABLE.filter((m) => m.name.toLowerCase().includes(q)).slice(0, 8);
+  if (!matches.length) return;
+
+  const box = document.createElement('div');
+  box.className = 'mention-suggest';
+  matches.forEach((m) => {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'mention-suggest-item';
+    item.textContent = m.name;
+    // mousedown (not click) fires before the textarea blurs, so focus never
+    // leaves it and the insert below lands at the right cursor position.
+    item.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      onPick(m);
+      closeSuggest();
+    });
+    box.appendChild(item);
+  });
+  anchorEl.appendChild(box);
+  openSuggestBox = box;
+}
+
+const notesListEl = document.getElementById('notesList');
+const addNoteBtn = document.getElementById('addNote');
+
+function renderNoteCard(n) {
+  const card = document.createElement('div');
+  card.className = 'note c-' + n.color;
+
+  const titleRow = document.createElement('div');
+  titleRow.className = 'note-title-row';
+
+  const title = document.createElement('input');
+  title.className = 'note-title';
+  title.value = n.title;
+  title.placeholder = 'Title';
+  title.addEventListener('input', () => { n.title = title.value; });
+  title.addEventListener('blur', () => touchNote(n));
+
+  const date = document.createElement('span');
+  date.className = 'note-date';
+  date.textContent = formatNoteDate(n.updatedAt);
+
+  const del = document.createElement('button');
+  del.type = 'button';
+  del.className = 'note-del';
+  del.textContent = '×';
+  del.title = 'Delete note';
+  del.addEventListener('click', () => {
+    if (confirm('Delete this note?')) {
+      notesList = notesList.filter((x) => x.id !== n.id);
+      persistNotes();
+      renderNotes();
+    }
+  });
+
+  titleRow.append(title, date, del);
+
+  const view = document.createElement('div');
+  view.className = 'note-view';
+  const showPlaceholder = () => {
+    if (n.body) { view.classList.remove('empty'); renderNoteBody(view, n.body); }
+    else { view.classList.add('empty'); view.textContent = 'Type @ to link a topic…'; }
+  };
+  showPlaceholder();
+
+  const body = document.createElement('textarea');
+  body.className = 'note-body';
+  body.value = n.body;
+  body.hidden = true;
+  body.rows = 3;
+
+  view.addEventListener('click', (e) => {
+    if (e.target.closest('.mention')) return; // let the chip navigate instead of entering edit mode
+    view.hidden = true;
+    body.hidden = false;
+    body.focus();
+  });
+
+  body.addEventListener('input', () => {
+    n.body = body.value;
+    const before = body.value.slice(0, body.selectionStart);
+    const m = before.match(/@([^\s@[\]()]*)$/);
+    if (!m) { closeSuggest(); return; }
+    showSuggest(card, m[1], (picked) => {
+      const start = body.selectionStart - m[0].length;
+      const insert = '@[' + picked.name + '](' + picked.id + ') ';
+      body.value = body.value.slice(0, start) + insert + body.value.slice(body.selectionStart);
+      n.body = body.value;
+      const pos = start + insert.length;
+      body.focus();
+      body.setSelectionRange(pos, pos);
+      touchNote(n);
+    });
+  });
+  body.addEventListener('blur', () => {
+    closeSuggest();
+    touchNote(n);
+    body.hidden = true;
+    view.hidden = false;
+    showPlaceholder();
+  });
+  body.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { closeSuggest(); body.blur(); }
+  });
+
+  const colors = document.createElement('div');
+  colors.className = 'note-colors';
+  NOTE_COLORS.forEach((c) => {
+    const dot = document.createElement('button');
+    dot.type = 'button';
+    dot.className = 'note-color-dot c-' + c + (c === n.color ? ' active' : '');
+    dot.title = c;
+    dot.addEventListener('click', () => { n.color = c; touchNote(n); renderNotes(); });
+    colors.appendChild(dot);
+  });
+
+  card.append(titleRow, view, body, colors);
+  return card;
+}
+
+function renderNotes() {
+  notesListEl.innerHTML = '';
+  for (const n of notesList) notesListEl.appendChild(renderNoteCard(n));
+}
+
+addNoteBtn.addEventListener('click', () => {
+  const used = notesList.map((n) => n.color);
+  const color = NOTE_COLORS.find((c) => !used.includes(c)) || NOTE_COLORS[notesList.length % NOTE_COLORS.length];
+  notesList.unshift({ id: newNoteId(), title: '', body: '', color, updatedAt: new Date().toISOString() });
+  persistNotes();
+  renderNotes();
+  const firstTitle = notesListEl.querySelector('.note .note-title');
+  if (firstTitle) firstTitle.focus();
+});
+
+/* ------------------------------------------------------------------ *
  * Export / import
  * ------------------------------------------------------------------ */
 
@@ -636,14 +909,20 @@ function startApp() {
   applyState();
   updateAccountButton();
 
+  loadNotesLocal();
+  renderNotes();
+
   if (sync.enabled && activeEmail) {
     note('Syncing…');
-    pullRemote()
-      .then((remote) => {
+    Promise.all([pullRemote(), pullNotesRemote()])
+      .then(([remoteProgress, remoteNotes]) => {
         // Firestore is the source of truth on load; local is the offline cache.
-        replaceState(remote);
+        replaceState(remoteProgress);
         applyState();
         saveLocal();
+        notesList = remoteNotes;
+        saveNotesLocal();
+        renderNotes();
         note('Synced as ' + activeEmail);
       })
       .catch((err) => {
